@@ -83,6 +83,7 @@ At feedback_level > 0, AxiECAMB reports the derived initial field value phi_ini/
 The fiducial-template Cl interpolation is forced off (use_spline_template = F) for isocurvature runs, which must never be interpolated against an adiabatic template.
 
 Isocurvature transfer functions are written to transfer_out.dat in the same CAMB column convention as the adiabatic ones, i.e. delta_i/[k^2 delta_ax(tau_ini)]. To obtain T_i = delta_i/delta_ax(tau_ini) as defined in the accompanying paper, multiply by k^2 with k in Mpc^-1, i.e. k = (column 1) * h, since column 1 is k/h.
+
 ----------------------------------------------------------------------
 #### <a name="warnings"></a>Warnings
 

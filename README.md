@@ -26,7 +26,7 @@ The main addition to params.ini due to ULAs, as compared to LCDM, are
 
  - m_ax: the ULA mass in units of eV;
  - omaxh2: the ULA abundance;
- - axfrac: the ULA fraction -- the code determines internally whether m_ax/H_0 >= 10 which assigns this fraction to that of the dark matter or dark energy (see "Method" section below)
+ - axfrac: the ULA fraction -- the code determines internally whether m_ax >= 1.44e-32 eV, which assigns this fraction to that of the dark matter or dark energy (see "Method" section below)
 
 The parameter use_axfrac specifies whether to use the ULA fraction parametrization.
 
@@ -93,6 +93,6 @@ The ULA GrowthRate subroutine pertaining to SZ analysis (and other measures of t
 
 If the matter power spectra or transfer function is needed for z>0, one needs to be careful regarding whether z is before or after the switch point to fluid approximation, given that they are defined differently before and after the switch. The code will display a warning sign if a z>0 is requested that is before the switch.
 
-The non-linear mode of the code is inherited from axionCAMB and not extensively tested. Turning on the non-linear mode will trigger a warning message. Halofit has not been recalibrated for axions, thus where the effective slope leaves the range Halofit was fitted over, the code falls back to linear theory for that scale.
+The non-linear mode of the code is inherited from axionCAMB and not extensively tested. Turning on the non-linear mode will trigger a warning message. Halofit has not been recalibrated for axions. Where axions dominate the dark matter, spline interpolation of the sparsely sampled matter transfer function across the highly suppressed Jeans oscillation regime can produce a spurious root in the Halofit scale search, thus that regime is treated under linear theory for lensing instead.
 
 accurateBB in params.ini should be assigned as T if accurate BB polarization power spectra are needed.

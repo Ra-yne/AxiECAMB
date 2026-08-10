@@ -1,0 +1,17 @@
+.DS_Store
+*.o
+*.a
+*.mod
+*~
+camb
+
+# CAMB run outputs
+*_scalCls.dat
+*_lensedCls.dat
+*_lenspotentialCls.dat
+*_scalCovCls.dat
+*_totCls.dat
+*_matterpower.dat
+*_transfer_out.dat
+*_params.ini
+!HighLExtrapTemplate_lenspotentialCls.dat

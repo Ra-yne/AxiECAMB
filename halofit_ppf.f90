@@ -71,8 +71,8 @@
     ! valid for low axion density.
     ! Make sure to set the same boundary mass, 1.e-25 eV, in subroutine outtransf.
     !if (CP%ma.ge.1.e-25) then
-    !Make sure to set the same boundary mass, m/H0 = 10, in subroutine outtransf.
-    if (CP%m_ovH0.ge.10._dl) then !RL 120224
+    !Make sure to set the same boundary mass, ma = 1.44e-32 eV (~m/H0=10 at h=0.67), in subroutine outtransf.
+    if (CP%ma .ge. 1.44e-32_dl) then !RL 120224
        omm0 = CP%omegac+CP%omegab+CP%omegan+CP%omegaax
        omv0_axion = 0._dl !RL 090925 DM cases, not adding DE
     else
@@ -104,6 +104,12 @@
              rknl=1./rmid
              rneff=-3-d1
              rncur=-d2
+             !RL note16 §7: gate out-of-domain effective slope. A cubic-spline overshoot of
+             ! transfer-tolerance noise on the ULA Jeans cliff can force a false sigma=1 root
+             ! whose rneff falls outside halofit's CDM calibration range [-3,0]; the Takahashi
+             ! amplitude polynomial then overflows and poisons C_l^phiphi with NaNs. Fall back
+             ! to linear here (goto 101 leaves nonlin_ratio=1, the still-linear exit).
+             if (rneff < -3._dl .or. rneff > 0._dl) goto 101
              exit
           elseif (diff.gt.0.001) then
              xlogr1=log10(rmid)

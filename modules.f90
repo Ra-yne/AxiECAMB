@@ -121,7 +121,7 @@ module ModelParams
      !Max_l and Max_eta_k are set to the tensor variables if only tensors requested
 
      real(dl)  :: omegab, omegac, omegav, omegan, omegaax, ma, m_ovH0, dfac
-     real(dl)  :: a_osc, tau_osc, opac_tauosc, expmmu_tauosc, alpha_ax, r_val, omegah2_rad, amp_i, axfrac, omegada, Hinf !RL added tau at oscillation - the correct value will be calculated at init_background in equations_ppf
+     real(dl)  :: a_osc, tau_osc, opac_tauosc, expmmu_tauosc, r_val, r_a_iso, omegah2_rad, amp_i, axfrac, omegada, Hinf !RL added tau at oscillation - the correct value will be calculated at init_background in equations_ppf
      real(dl) :: ah_osc, ahosc_ETA, A_coeff, tvarphi_c, tvarphi_cp, tvarphi_s, tvarphi_sp, wEFA_c !RL added background EFA parameters at the switch
      real(dl) :: A_coeff_alt !RL 043024 testing with changed A coeff
      real(dl) :: a_skip, dfac_skip, a_skipst !RL 012524 added for skipping recombination
@@ -129,12 +129,20 @@ module ModelParams
      real(dl)  :: H0,TCMB,yhe,Num_Nu_massless
      real(dl)  :: H0_in_Mpc_inv, H0_eV !RL for the ease of computing KG in pert
      real(dl)  :: ratio
+     !RL 072826: isocurvature parameterization interface (paper Sec. "Isocurvature parameters and interface")
+     integer   :: iso_input_mode   !1: (A_iso, n_a_iso); 2: (r_a_iso, n_a_iso) [default]; 3: Hinf -> r_a_iso
+     real(dl)  :: A_iso_input      !mode 1: primordial iso amplitude at k0 = 0.05 Mpc^-1
+     real(dl)  :: n_a_iso          !iso tilt n_ax; scale-invariant = 0; effective value after mode resolution
+     logical   :: iso_consistency  !modes 2/3: n_ax = -r_a_iso/8 (consistency relation) if T, else n_a_iso as read
 
      !!real(dl), dimension(100000, 1, 6) :: RHCl_temp ! RH temp vector which will contain the axion iso spectrum ! RH
      !!real(dl), dimension(100000, 1, 6) :: RHCl_temp_lensed ! RH temp vector which will contain the axion iso spectrum ! RH
      !!real(dl), dimension(100000, 1, 6) :: RHCl_temp_tensor ! RH temp vector which will contain the axion iso spectrum ! RH
 
-     !DM: tensor to scalar ratio is in CP for use in axion isocurvature i.c.'s 
+     !DM: tensor to scalar ratio is in CP for use in axion isocurvature i.c.'s
+     !RL 072826: no longer the case -- r_val is not read in this version and nothing uses
+     !it. The isocurvature amplitude comes from r_a_iso or A_iso (see the interface note
+     !above); r_val is retained here for AxiECAMB 2.0, where tensors return.
      integer   :: Num_Nu_massive !sum of Nu_mass_numbers below
      integer   :: Nu_mass_eigenstates  !1 for degenerate masses
      logical   :: share_delta_neff !take fractional part to heat all eigenstates the same
@@ -1243,13 +1251,13 @@ contains
        open(unit=fileio_unit,file=ScalFile,form='formatted',status='replace')
        do in=1,CP%InitPower%nn
           do il=lmin,min(10000,CP%Max_l)
-             write(fileio_unit,trim(numcat('(1I6,',last_C))//'E15.5)')il ,fact*Cl_scalar(il,in,C_Temp:last_C) !Default
+             write(fileio_unit,trim(numcat('((1I6,1X),',last_C))//'(ES15.8,1X))')il ,fact*Cl_scalar(il,in,C_Temp:last_C) !Default
              
              !RL 07282023 for full digit output, remove after testing is done
-             !!!write(fileio_unit,trim(numcat('(1I6,',last_C))//'36e52.42)')il ,fact*Cl_scalar(il,in,C_Temp:last_C)
+             !!!write(fileio_unit,trim(numcat('((1I6,1X),',last_C))//'36e52.42)')il ,fact*Cl_scalar(il,in,C_Temp:last_C)
           end do
           do il=10100,CP%Max_l, 100
-             write(fileio_unit,trim(numcat('(1E15.5,',last_C))//'E15.5)') real(il),&
+             write(fileio_unit,trim(numcat('(1(ES15.8,1X),',last_C))//'(ES15.8,1X))') real(il),&
                   fact*Cl_scalar(il,in,C_Temp:last_C) !Default
              
              !RL 07282023 for full digit output, remove after testing is done
@@ -1269,15 +1277,15 @@ contains
              outarr(1:2,:)=sqrt(fact)*outarr(1:2,:)
              outarr(:,1:2)=sqrt(fact)*outarr(:,1:2)
              !RL 07282023 for full digit output, remove after testing is done
-             write(fileio_unit,trim(numcat('(1I6,',(3+num_redshiftwindows)**2))//'E15.5)') il, outarr
-             !!!write(fileio_unit,trim(numcat('(1I6,',(3+num_redshiftwindows)**2))//'36e52.42)') il, outarr
+             write(fileio_unit,trim(numcat('((1I6,1X),',(3+num_redshiftwindows)**2))//'(ES15.8,1X))') il, outarr
+             !!!write(fileio_unit,trim(numcat('((1I6,1X),',(3+num_redshiftwindows)**2))//'36e52.42)') il, outarr
           end do
           do il=10100,CP%Max_l, 100
              outarr=Cl_scalar_array(il,in,1:3+num_redshiftwindows,1:3+num_redshiftwindows)
              outarr(1:2,:)=sqrt(fact)*outarr(1:2,:)
              outarr(:,1:2)=sqrt(fact)*outarr(:,1:2)
              !RL 07282023 for full digit output, remove after testing is done
-             write(fileio_unit,trim(numcat('(1E15.5,',(3+num_redshiftwindows)**2))//'E15.5)') real(il), outarr
+             write(fileio_unit,trim(numcat('(1(ES15.8,1X),',(3+num_redshiftwindows)**2))//'(ES15.8,1X))') real(il), outarr
              !!!write(fileio_unit,trim(numcat('(1E15.5,',(3+num_redshiftwindows)**2))//'36e52.42)') real(il), outarr
           end do
        end do
@@ -1289,7 +1297,7 @@ contains
        open(unit=fileio_unit,file=TensFile,form='formatted',status='replace')
        do in=1,CP%InitPower%nn
           do il=lmin,CP%Max_l_tensor
-             write(fileio_unit,'(1I6,4E15.5)')il, fact*Cl_tensor(il, in, CT_Temp:CT_Cross)
+             write(fileio_unit,'((1I6,1X),4(ES15.8,1X))')il, fact*Cl_tensor(il, in, CT_Temp:CT_Cross)
           end do
        end do
        close(fileio_unit)
@@ -1299,11 +1307,11 @@ contains
        open(unit=fileio_unit,file=TotFile,form='formatted',status='replace')
        do in=1,CP%InitPower%nn
           do il=lmin,CP%Max_l_tensor
-             write(fileio_unit,'(1I6,4E15.5)')il, fact*(Cl_scalar(il, in, C_Temp:C_E)+ Cl_tensor(il,in, C_Temp:C_E)), &
+             write(fileio_unit,'((1I6,1X),4(ES15.8,1X))')il, fact*(Cl_scalar(il, in, C_Temp:C_E)+ Cl_tensor(il,in, C_Temp:C_E)), &
                   fact*Cl_tensor(il,in, CT_B), fact*(Cl_scalar(il, in, C_Cross) + Cl_tensor(il, in, CT_Cross))
           end do
           do il=CP%Max_l_tensor+1,CP%Max_l
-             write(fileio_unit,'(1I6,4E15.5)')il ,fact*Cl_scalar(il,in,C_Temp:C_E), 0._dl, fact*Cl_scalar(il,in,C_Cross)
+             write(fileio_unit,'((1I6,1X),4(ES15.8,1X))')il ,fact*Cl_scalar(il,in,C_Temp:C_E), 0._dl, fact*Cl_scalar(il,in,C_Cross)
           end do
        end do
        close(fileio_unit)
@@ -1313,9 +1321,9 @@ contains
        open(unit=fileio_unit,file=LensFile,form='formatted',status='replace')
        do in=1,CP%InitPower%nn
           do il=lmin, lmax_lensed
-             write(fileio_unit,'(1I6,4E15.5)')il, fact*Cl_lensed(il, in, CT_Temp:CT_Cross)
+             write(fileio_unit,'((1I6,1X),4(ES15.8,1X))')il, fact*Cl_lensed(il, in, CT_Temp:CT_Cross)
              !RL 07282023 for full digit output, remove after testing is done
-             !!!write(fileio_unit,'(1I6, 36e52.42)')il, fact*Cl_lensed(il, in, CT_Temp:CT_Cross)
+             !!!write(fileio_unit,'((1I6,1X), 36e52.42)')il, fact*Cl_lensed(il, in, CT_Temp:CT_Cross)
           end do
        end do
        close(fileio_unit)
@@ -1326,10 +1334,10 @@ contains
        open(unit=fileio_unit,file=LensTotFile,form='formatted',status='replace')
        do in=1,CP%InitPower%nn
           do il=lmin,min(CP%Max_l_tensor,lmax_lensed)
-             write(fileio_unit,'(1I6,4E15.5)')il, fact*(Cl_lensed(il, in, CT_Temp:CT_Cross)+ Cl_tensor(il,in, CT_Temp:CT_Cross))
+             write(fileio_unit,'((1I6,1X),4(ES15.8,1X))')il, fact*(Cl_lensed(il, in, CT_Temp:CT_Cross)+ Cl_tensor(il,in, CT_Temp:CT_Cross))
           end do
           do il=min(CP%Max_l_tensor,lmax_lensed)+1,lmax_lensed
-             write(fileio_unit,'(1I6,4E15.5)')il, fact*Cl_lensed(il, in, CT_Temp:CT_Cross)
+             write(fileio_unit,'((1I6,1X),4(ES15.8,1X))')il, fact*Cl_lensed(il, in, CT_Temp:CT_Cross)
           end do
        end do
     end if
@@ -1372,12 +1380,12 @@ contains
              end if
              scale = (real(il+1)/il)**2/OutputDenominator !Factor to go from old l^4 factor to new
 
-             write(fileio_unit,'(1I6,7E15.5)') il , fact*TT, fact*EE, fact*BB, fact*TE, scale*Cl_scalar(il,in,C_Phi),&
+             write(fileio_unit,'((1I6,1X),7(ES15.8,1X))') il , fact*TT, fact*EE, fact*BB, fact*TE, scale*Cl_scalar(il,in,C_Phi),&
                   (real(il+1)/il)**1.5/OutputDenominator*sqrt(fact)*Cl_scalar(il,in,C_PhiTemp:C_PhiE)
           end do
           do il=10100,CP%Max_l, 100
              scale = (real(il+1)/il)**2/OutputDenominator
-             write(fileio_unit,'(1E15.5,7E15.5)') real(il), fact*Cl_scalar(il,in,C_Temp:C_E),0.,fact*Cl_scalar(il,in,C_Cross), &
+             write(fileio_unit,'(1(ES15.8,1X),7(ES15.8,1X))') real(il), fact*Cl_scalar(il,in,C_Temp:C_E),0.,fact*Cl_scalar(il,in,C_Cross), &
                   scale*Cl_scalar(il,in,C_Phi),&
                   (real(il+1)/il)**1.5/OutputDenominator*sqrt(fact)*Cl_scalar(il,in,C_PhiTemp:C_PhiE)
           end do
@@ -1406,7 +1414,7 @@ contains
        open(unit=fileio_unit,file=VecFile,form='formatted',status='replace')
        do in=1,CP%InitPower%nn
           do il=lmin,CP%Max_l
-             write(fileio_unit,'(1I5,4E15.5)')il, fact*Cl_vector(il, in, CT_Temp:CT_Cross)
+             write(fileio_unit,'(1I5,4(ES15.8,1X))')il, fact*Cl_vector(il, in, CT_Temp:CT_Cross)
           end do
        end do
 
@@ -2148,17 +2156,16 @@ contains
     integer in, j
     !JD 08/13 Changes in here to PK arrays and variables
     integer j_PK
-    real(dl) z_osc !RL 121924 for comparison
+    real(dl) z_osc, omegam_0 !RL 121924 for comparison
     z_osc = 1._dl/CP%a_osc - 1._dl
     if (z_osc .lt. 0._dl) then
        z_osc = 0._dl
     end if
     
-    !!!omegam_0 = CP%omegac + CP%omegab + CP%omegan !RL 091924
-    !!!write(*, *) 'm_ovH0', CP%m_ovH0
-    !!!if (CP%m_ovH0 .ge. 10._dl) then !RL 091924
-    !!!   omegam_0 = omegam_0 + CP%omegaax
-    !!!end if
+    omegam_0 = CP%omegac + CP%omegab + CP%omegan !RL 091924
+    if (CP%ma .ge. 1.44e-32_dl) then !RL 091924; boundary fixed in eV (not m/H0=10) to match inidriver_axion/outtransf/halofit_ppf
+      omegam_0 = omegam_0 + CP%omegaax
+    end if
     
     do in=1, CP%InitPower%nn
        if (CP%InitPower%nn>1)  write(*,*) 'Power spectrum : ', in
@@ -2170,9 +2177,7 @@ contains
                   &' is before the axion switch point z = ', z_osc, &
                   &', hence T(k) is defined differently from that after the switch point.'
           end if         
-          !!!write(*, *) 'Writing both sigma_8 and Omega_m(z=0) to file, please make sure only z=0 is involved'
           !!!write(*, '(36e52.42e3)') ThermoDerivedParams( derived_zstar ), ThermoDerivedParams( derived_rstar ),  ThermoDerivedParams( derived_thetastar ), real(MTrans%sigma_8(j_PK,in)), real(MTrans%sigma_8(j_PK,in))*sqrt(omegam_0/0.3_dl)
-          !!write(02222404, '(36e52.42e3)') ThermoDerivedParams( derived_zstar ), ThermoDerivedParams( derived_rstar ),  ThermoDerivedParams( derived_thetastar ), real(MTrans%sigma_8(j_PK,in)), omegam_0
        end do
     end do
 
@@ -2250,7 +2255,7 @@ contains
           do ik=1,MTrans%num_q_trans
              if (MTrans%TransferData(Transfer_kh,ik,i)/=0) then
                 !                    write(fileio_unit,'(7E14.6)') MTrans%TransferData(Transfer_kh:Transfer_max,ik,i)
-                write(fileio_unit,'(9E14.6)') MTrans%TransferData(Transfer_kh:Transfer_max,ik,i) ! axion
+                write(fileio_unit,'(9(ES15.8,1X))') MTrans%TransferData(Transfer_kh:Transfer_max,ik,i) ! axion
                 !!!write(fileio_unit,'(36e52.42)') MTrans%TransferData(Transfer_kh:Transfer_max,ik,i) ! RL
              end if
           end do
@@ -2279,7 +2284,7 @@ contains
     ncol=1
 
     write (fmt,*) CP%InitPower%nn+1
-    fmt = '('//trim(adjustl(fmt))//'E15.5)'
+    fmt = '('//trim(adjustl(fmt))//'(ES15.8,1X))'
     do itf=1, CP%Transfer%PK_num_redshifts
        if (FileNames(itf) /= '') then
           if (.not. transfer_interp_matterpower ) then

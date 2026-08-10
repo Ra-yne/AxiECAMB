@@ -41,7 +41,10 @@
        real(dl), parameter :: a_rad = 8._dl*const_pi**5*k_B**4/15/c**3/h_p**3
                 !7.565914e-16_dl !radiation constant for u=aT^4
 
-       real(dl), parameter :: mplanck = 2.435e18 ! the reduced planck mass in GeV
+       real(dl), parameter :: mplanck = 2.435e18_dl ! the reduced planck mass in GeV
+       !RL 072826: the _dl suffix matters. Without it the literal is single precision and
+       !the constant carries a 4.5e-8 relative error, which propagated into the Hinf <-> r_ax
+       !conversion (iso_input_mode = 3) and into the reported Hinf equivalent.
        real(dl), parameter :: Compton_CT = MPC_in_sec*(8.d0/3.d0)*(sigma_thomson/(m_e*c))*a_rad
         !Compton_CT is CT in Mpc units, (8./3.)*(sigma_T/(m_e*C))*a_R in Mpc
         !Used to get evolution of matter temperature

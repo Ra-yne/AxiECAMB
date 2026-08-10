@@ -816,7 +816,11 @@ contains
 
 
        !old working start time for other modes
-       taustart=min(taustart,tauosc,taueq, 0.3_dl*CP%tau_osc) !RL added CP%tau_osc as a constraint (the 0.001 prefactors in the times are subject to test and change)
+       !RL 070926: the 0.3/sqrt(dfac) factor enforces the frozen-field requirement at the
+       !perturbation start: with m/H = dfac at tau_osc and m/H ~ tau^2 in RD, starting at
+       !0.3 tau_osc/sqrt(dfac) gives m/H_ini = 0.09 < 0.1, matching the background-side
+       !check in axion_background (paper Sec. "Isocurvature parameters and interface").
+       taustart=min(taustart,tauosc,taueq, 0.3_dl*CP%tau_osc/dsqrt(CP%dfac)) !RL added CP%tau_osc as a constraint. Also added sqrt(H_*/m) so that isocurvature modes are accurate enough (m/H_ini <= 0.09, assuming RD)
     end if
 
     GetTauStart=taustart

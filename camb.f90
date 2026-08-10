@@ -450,6 +450,17 @@
         write(*,*) 'Your matter densities are strange'
     end if
 
+    !RL 072926: baryon isocurvature is built from the CDM row as initv(3,:) = initv(2,:)*omega_b/omega_c
+    !(equations_ppf), so it does not exist without CDM -- which axfrac = 1 gives exactly. Validated here
+    !rather than there because that routine runs per-k inside an OMP loop, where a stop prints once per
+    !in-flight thread and only after the background solve. Modes that never read row 3 are unaffected.
+    if (P%omegac <= 0._dl .and. (P%Scalar_initial_condition == initial_iso_baryon .or. &
+    (P%Scalar_initial_condition == initial_vector .and. &
+    P%InitialConditionVector(initial_iso_baryon) /= 0._dl))) then
+        OK = .false.
+        write(*,*) 'Baryon isocurvature is the baryon-CDM compensation mode and does not exist at omegac = 0.'
+    end if
+
     if (P%WantScalars .and. P%Max_eta_k < P%Max_l .or.  &
     P%WantTensors .and. P%Max_eta_k_tensor < P%Max_l_tensor) then
         OK = .false.

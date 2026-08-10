@@ -724,6 +724,31 @@ contains
     integer ind
     real(dl) opacity, cs2
 
+    !<<<<<<<<<< TENSOR TAU_OSC SWITCH FIX -- BLOCK 1 of 2 -- BEGIN <<<<<<<<<<
+    !Retained for the tensor support planned in AxiECAMB 2.0; unreachable in this
+    !version, which refuses get_tensor_cls = T. The original subroutine body is
+    !preserved verbatim between the two stamped blocks, so deleting both blocks
+    !restores the pre-fix code exactly. The fix only affects get_tensor_cls = T runs
+    !with an oscillating axion, which previously crashed (Error in dverk at tau_osc):
+    !only the scalar evolution set EV%oscillation_started, so derivst kept reading the
+    !KG background tables (which end at a_osc) past the switch. Here we stop dverk
+    !exactly at CP%tau_osc (tau-space, consistent with the scalar switch), set the flag,
+    !and restart integration (ind = 1) across the discontinuous RHS. No variable
+    !remapping is needed: the axion enters the tensor equations only through the
+    !background density.
+    !BLOCK 1 handles tau_osc arriving before the tight-coupling switch-off
+    !(or with no tight-coupling switch pending in this interval).
+    if (.not. EV%oscillation_started .and. CP%tau_osc < tauend .and. &
+         .not. (EV%TensTightCoupling .and. tauend > EV%TightSwitchoffTime &
+         .and. EV%TightSwitchoffTime <= CP%tau_osc)) then
+       if (CP%tau_osc > tau) then
+          call dverk(EV,EV%TensEqsToPropagate, derivst,tau,y,CP%tau_osc,tol1,ind,c,EV%nvart,w)
+       end if
+       EV%oscillation_started = .true.
+       ind = 1
+    end if
+    !>>>>>>>>>> TENSOR TAU_OSC SWITCH FIX -- BLOCK 1 of 2 -- END >>>>>>>>>>
+
     if (EV%TensTightCoupling .and. tauend > EV%TightSwitchoffTime) then
        if (EV%TightSwitchoffTime > tau) then
           !write(*, *) 'dverk in GaugeInterface_EvolveTens is called' !RL testing
@@ -739,6 +764,20 @@ contains
        y(EV%g_ix+2)= 32._dl/45._dl*EV%k_buf/opacity*y(3)
        y(EV%E_ix+2) = y(EV%g_ix+2)/4
     end if
+
+    !<<<<<<<<<< TENSOR TAU_OSC SWITCH FIX -- BLOCK 2 of 2 -- BEGIN <<<<<<<<<<
+    !BLOCK 2 handles tau_osc arriving after the tight-coupling switch-off
+    !(the tight-coupling block above has then already integrated up to its
+    !switch time, so we continue from there to tau_osc).
+    if (.not. EV%oscillation_started .and. CP%tau_osc < tauend) then
+       if (CP%tau_osc > tau) then
+          call dverk(EV,EV%TensEqsToPropagate, derivst,tau,y,CP%tau_osc,tol1,ind,c,EV%nvart,w)
+       end if
+       EV%oscillation_started = .true.
+       ind = 1
+    end if
+    !>>>>>>>>>> TENSOR TAU_OSC SWITCH FIX -- BLOCK 2 of 2 -- END >>>>>>>>>>
+
     call dverk(EV,EV%TensEqsToPropagate, derivst,tau,y,tauend,tol1,ind,c,EV%nvart,w)
 
 
@@ -924,6 +963,9 @@ contains
     real(dl) dgpi_out, dgpiout_out
     real(dl) sources_temp(CTransScal%NumSources) !RL for the integration by parts boundary condition (though not very useful)
     real(dl) metricdelta_test(2) !RL 102723
+    !RL: locals for runtime "no-ETA" criterion (see comment block below)
+    real(dl) :: aux_num, aux_den, w_ax_p1_inst, u_ax_kg_inst
+    logical  :: use_inst
 
     yprime = 0
     yout=0
@@ -1062,6 +1104,24 @@ contains
 !RL0430       tdvarphi_cp = (-2.0d0*tU - (CP%A_coeff_alt + 3.0d0*CP%ah_osc/(a*CP%m_ovH0*CP%H0/100.0d0))*tV)/(2.0d0*tW)
 !RL0430       tdvarphi_s = y(EV%a_kg_ix + 1)/(a*CP%m_ovH0) - tdvarphi_cp
 !RL0430       tdvarphi_sp = (CP%A_coeff_alt*tU - (2.0d0 + k2/((a*CP%m_ovH0*CP%H0_in_Mpc_inv)**2.0d0))*tV)/(2.0d0*tW)
+
+       !RL: runtime "no-ETA" criterion (paper-appendix-C breakdown in deep
+       !sub-Jeans iso modes).  When
+       !  (delta-phi_c'^2 + delta-phi_s'^2) > X^2 * (delta-phi_c^2 + delta-phi_s^2),
+       !the (C8) bilinear projects to a runaway delta_a; use instantaneous
+       !KG values for the post-switch initial conditions instead.
+       !Anchors:  iso-broken ratio ~5e3,  m>>Heq iso-OK ~0.1,  adi-OK ~3e-3.
+       !X=10 chosen as a global validity check on the EFA averaging: bypasses
+       !the runaway when the perturbation timescale is much shorter than 1/m.
+       !Adi never triggers; iso modes in the deep sub-Jeans regime do, where
+       !the iso TF is small anyway.  Edit the literal 100.0_dl below to retune.
+       use_inst = .false.
+       aux_num = tdvarphi_cp**2 + tdvarphi_sp**2
+       aux_den = tdvarphi_c**2  + tdvarphi_s**2
+       if (aux_den > 0._dl) then
+          use_inst = (aux_num > aux_den * 100.0_dl)  ! X^2 = 100.0  (X = 10.0)
+       end if
+
        !Normalized deltarho_ef
         tdrho_ef = (CP%m_ovH0**2.0d0)*(CP%tvarphi_s*tdvarphi_cp - CP%tvarphi_c*tdvarphi_sp &
              &+ CP%tvarphi_cp*tdvarphi_cp + CP%tvarphi_sp*tdvarphi_sp &
@@ -1099,11 +1159,37 @@ contains
 !       
        !Now the LHS of the two EoMs are assigned clxax_kg and u_ax_kg
        !RL: change for efa
-       yout(EVout%a_kg_ix) = tdrho_ef/(CP%rhorefp_ovh2*(CP%H0**2.0d0/1.0d4)) !deltaax_ef
-       !RL 103023: deltaax_efa needs to change in order to keep v_ef = v_efa and sigma_ef = sigma_efa
-       yout(EVout%a_kg_ix) = yout(EVout%a_kg_ix) + (3._dl*CP%ah_osc*CP%H0_in_Mpc_inv/(CP%H0/100.0d0))*(u_ax_ef-u_ax_efa)/k
-       
-       yout(EVout%a_kg_ix+1) = u_ax_efa!u_ax_ef !uax_ef, taken to be continuous, i.e. u_ax_efa       
+       if (use_inst) then
+          ! Instantaneous KG initial conditions.  No (u_ax_ef - u_ax_efa)/k
+          ! correction here -- that belongs to the ETA reconstruction.  The
+          ! metric_delta block below still runs and captures the rho_a
+          ! discontinuity through (yprime - yprimeout) automatically.
+          !
+          ! RL 2026-05-21 Option B (advisor PS reinterpretation): enforce
+          ! continuity in (delta_rho_a, rho_a*u_a) at the switch by writing
+          !   y(a_kg_ix)   = delta_rho_KG  / rho_EFA
+          !   y(a_kg_ix+1) = rho_KG*u_KG   / rho_EFA
+          ! so the EFA evolution "sees"
+          !   rho_EFA * y(a_kg_ix)   = delta_rho_KG
+          !   rho_EFA * y(a_kg_ix+1) = rho_KG * u_KG.
+          ! Previous form  yout = drhoax_kg/grhoax_kg  and  u_ax_kg_inst
+          ! left an O(H/m) rho_KG/rho_EFA mismatch in the imprinted IC,
+          ! which the stiff post-switch evolution amplified beyond O(H/m).
+          w_ax_p1_inst = (2.0_dl * v2_bg**2 / a2) / &
+                         (v2_bg**2 / a2 + (CP%m_ovH0 * v1_bg)**2)
+          u_ax_kg_inst = w_ax_p1_inst * k * y(EV%a_kg_ix) * EV%renorm_c &
+                         / (CP%H0_in_Mpc_inv * v2_bg)
+          yout(EVout%a_kg_ix)   = drhoax_kg &
+                                  / (CP%rhorefp_ovh2 * (CP%H0**2.0d0/1.0d4))
+          yout(EVout%a_kg_ix+1) = u_ax_kg_inst * grhoax_kg &
+                                  / (CP%rhorefp_ovh2 * (CP%H0**2.0d0/1.0d4))
+       else
+          yout(EVout%a_kg_ix) = tdrho_ef/(CP%rhorefp_ovh2*(CP%H0**2.0d0/1.0d4)) !deltaax_ef
+          !RL 103023: deltaax_efa needs to change in order to keep v_ef = v_efa and sigma_ef = sigma_efa
+          yout(EVout%a_kg_ix) = yout(EVout%a_kg_ix) + (3._dl*CP%ah_osc*CP%H0_in_Mpc_inv/(CP%H0/100.0d0))*(u_ax_ef-u_ax_efa)/k
+
+          yout(EVout%a_kg_ix+1) = u_ax_efa!u_ax_ef !uax_ef, taken to be continuous, i.e. u_ax_efa
+       end if
        
        !Now we have finished switching to EFA for EVout, call derivs again to get variables on the EFA side
        
@@ -2280,7 +2366,8 @@ contains
     !clxax_analytical = (v2_bg*dv2_analytical/a2 + (CP%m_ovH0**2.0d0)*v1_bg*dv1_analytical)*2.0d0/grhoax_kg 
     !write(111001, '(36e52.42,\)') k, a, a_osc, tau, CP%tau_osc, adotoa, dv1, dv1_analytical, dv2, dv2_analytical, clxax, clxax_kg, clxax_analytical!, v1_bg, v2_bg,
 
-    !!    write(073123, '(36e52.42,\)') a, CP%a_osc, tau, CP%tau_osc, adotoa/H0_in_Mpc_inv, dorp*(CP%H0**2.0d0/1.0d4)/grhom, clxax_kg
+   !!    write(073123, '(36e52.42,\)') a, CP%a_osc, tau, CP%tau_osc, adotoa/H0_in_Mpc_inv, dorp*(CP%H0**2.0d0/1.0d4)/grhom, clxax_kg
+   
     !!write(*, *) 'Rayne, in output, j, expmmu(j)', j, expmmu(j)
     if (present(dgpi_out)) then !RL 091023
        dgpi_out = dgpi
@@ -2596,12 +2683,15 @@ contains
        initv(2,i_pir)=-Rc*omtau*x2/3/(2*Rv+15._dl)
        initv(2,i_eta)= Rc*omtau*(1._dl/3 - omtau/8)*EV%Kf(1)
        initv(2,i_aj3r)=0
-       !Baryon isocurvature
-       if (Rc==0) stop 'Isocurvature initial conditions assume non-zero dark matter'
-
-       initv(3,:) = initv(2,:)*(Rb/Rc)
-       initv(3,i_clxc) = initv(3,i_clxb)
-       initv(3,i_clxb)= initv(3,i_clxb)+1
+       !RL 072926: baryon iso is the baryon-CDM compensation (row 3 = CDM row * omega_b/omega_c) and
+       !does not exist at omega_c = 0, which axfrac = 1 hits exactly. Build it only where defined;
+       !elsewhere it stays zero (initv=0 above) so initial_vector avoids 0*NaN. The refusal for modes
+       !that actually read row 3 is in CAMB_ValidateParams -- this routine runs inside an OMP k-loop.
+       if (Rc > 0._dl) then
+          initv(3,:) = initv(2,:)*(Rb/Rc)
+          initv(3,i_clxc) = initv(3,i_clxb)
+          initv(3,i_clxb)= initv(3,i_clxb)+1
+       end if
 
        !neutrino isocurvature density mode
 
@@ -2657,18 +2747,24 @@ contains
 
 
        !RL reading: noticed that there's this axion isocurvature initial condition specifications that we might need to incorporate into the field variables too in the future. But stay tuned for now
-       initv(6,i_clxax)=1.0d0-(x*x)/(10.0d0)&
-            -Konstant*(x*x)*omtau/(180.0d0)+(1.0d0/600.0d0)*(x**4.0d0)&
-            +(53.0d0*(Konstant**2.0d0)*(x**2.0d0)*(omtau**2.0d0))/(140.0d0*5.0d0*16.0d0)
+       initv(6,i_clxax)= 0._dl
+       !1.0d0-(x*x)/(10.0d0)&
+       !     -Konstant*(x*x)*omtau/(180.0d0)+(1.0d0/600.0d0)*(x**4.0d0)&
+       !     +(53.0d0*(Konstant**2.0d0)*(x**2.0d0)*(omtau**2.0d0))/(140.0d0*5.0d0*16.0d0)
        ! Normalise to \delta_a=1. 
-       initv(6,i_v_ax)=-x/5.0d0+(x*x*x)/30.0d0+Konstant*x*omtau/(30.0d0)&
-            -x*(Konstant**2.0d0)*(omtau**2.0d0)/(84.d0)&
-            +(11.0d0*(Konstant**3.0d0)*x*(omtau**(3.0d0)))/(42.0d0*64.0d0)&
-            -Konstant*(x**3.0d0)*omtau/(120.0d0)-(x**5.0d0)/(600.0d0)&
-            -(11.0d0*(Konstant**4.0d0)*x*(omtau**4.0d0))/(63.0d0*128.0d0)&
-            +(929.0d0*(Konstant**2.0d0))*(x**3.0d0)*(omtau**2.0d0)/(3780.0d0*16.0d0*5.0d0)&
-            +((CP%m_ovH0**2.0d0)*x*(omtau**4.0d0)/(225.0d0*5.0d0*64.0d0*CP%omegar&
-            *(((CP%omegab+CP%omegac+CP%omegaax)/(4.0d0*CP%omegar))**4.0d0)))*(FF**4.0d0)
+       initv(6,i_v_ax)= 0._dl
+       !-x/5.0d0+(x*x*x)/30.0d0+Konstant*x*omtau/(30.0d0)&
+       !     -x*(Konstant**2.0d0)*(omtau**2.0d0)/(84.d0)&
+       !     +(11.0d0*(Konstant**3.0d0)*x*(omtau**(3.0d0)))/(42.0d0*64.0d0)&
+       !     -Konstant*(x**3.0d0)*omtau/(120.0d0)-(x**5.0d0)/(600.0d0)&
+       !     -(11.0d0*(Konstant**4.0d0)*x*(omtau**4.0d0))/(63.0d0*128.0d0)&
+       !     +(929.0d0*(Konstant**2.0d0))*(x**3.0d0)*(omtau**2.0d0)/(3780.0d0*16.0d0*5.0d0)&
+       !     +((CP%m_ovH0**2.0d0)*x*(omtau**4.0d0)/(225.0d0*5.0d0*64.0d0*CP%omegar&
+       !     *(((CP%omegab+CP%omegac+CP%omegaax)/(4.0d0*CP%omegar))**4.0d0)))*(FF**4.0d0)
+       initv(6,i_dphi_ax) = 1._dl !RL 011626 simpler field normalization where delta v_ini = 1
+       !RL 111225: k correction (1st term) as well as m/H correction (2nd term)
+       initv(6,i_dphidot_ax) = - initv(6,i_dphi_ax)*(k2/(3._dl*CP%H0_in_Mpc_inv) + &
+            &a2 * (CP%m_ovH0**2.0d0) * CP%H0_in_Mpc_inv/5._dl)/adotoa
 
 
        !		initv(6,i_clxax)=1.0d0-(x*x)/(10.0d0)
@@ -2734,7 +2830,6 @@ contains
     EV%renorm_c = sqrt(CP%rhorefp_ovh2)*CP%H0*((k*CP%tau_osc)**2._dl)/CP%m_ovH0
     y(EV%a_kg_ix) = InitVec(i_dphi_ax)/EV%renorm_c !RL 050324
     y(EV%a_kg_ix+1) = InitVec(i_dphidot_ax) !RL 050324
-    !y(EV%a_kg_ix+1) = InitVec(i_dphidot_ax) !RL 050624
 
     !  Photons
     y(EV%g_ix)=InitVec(i_clxg)
@@ -3016,12 +3111,28 @@ contains
 
     grhoax_t=dorp*(a**2.0d0)
     Arr(Transfer_kh) = k/(CP%h0/100._dl)
-    Arr(Transfer_cdm) = clxc/k2
-    Arr(Transfer_b) = clxb/k2
-    Arr(Transfer_g) = clxg/k2
-    Arr(Transfer_r) = clxr/k2
-    !write(*, *) 'In transf, k, tau, 1._dl/tau', k, tau, 1._dl/tau
-    Arr(Transfer_axion) = clxax_kg/k2 !RL replaced the pert with that from kg
+    if (CP%axion_isocurvature) then
+       ! RL 051525 + RL 06**26: in axion-iso mode all species' perturbations
+       ! were sourced by the same IC `delta-phi-tilde_i = 1`, so every output
+       ! transfer is in "per-delta-phi-tilde_i" units.  Multiply each output
+       ! by phi_i/2 = phinorm_table(1)/2 to convert to "per-delta_a(tau_i)=1"
+       ! units, matching the IC role that delta_c(tau_i)=1 plays in public-
+       ! CAMB CDM-iso.  Single overall multiplier per output -- preserves
+       ! the dgrho compensation (clxax_kg, clxc, clxb stay raw in the dgrho
+       ! sum below; the Transfer_tot output picks up the same phi_i/2 factor).
+       Arr(Transfer_cdm)   = (clxc/k2)     * (phinorm_table(1)/2._dl)
+       Arr(Transfer_b)     = (clxb/k2)     * (phinorm_table(1)/2._dl)
+       Arr(Transfer_g)     = (clxg/k2)     * (phinorm_table(1)/2._dl)
+       Arr(Transfer_r)     = (clxr/k2)     * (phinorm_table(1)/2._dl)
+       Arr(Transfer_axion) = (clxax_kg/k2) * (phinorm_table(1)/2._dl)
+    else
+       Arr(Transfer_cdm)   = clxc/k2
+       Arr(Transfer_b)     = clxb/k2
+       Arr(Transfer_g)     = clxg/k2
+       Arr(Transfer_r)     = clxr/k2
+       Arr(Transfer_axion) = clxax_kg/k2
+    end if
+
     !write(*, *) 'Rayne, transfer function for axions, transfer function for cdm', Arr(Transfer_axion), Arr(Transfer_cdm)
     !write(111608, '(36e52.42,\)') k, a, CP%a_osc, tau, CP%tau_osc, Arr(Transfer_axion), Arr(Transfer_cdm), Arr(Transfer_b), Arr(Transfer_g)
 
@@ -3030,7 +3141,11 @@ contains
 
     if (CP%Num_Nu_Massive > 0) then
        call MassiveNuVars(EV,y,a,grho,gpres,dgrho,dgq)
-       Arr(Transfer_nu) = dgrho/grho/k2
+       if (CP%axion_isocurvature) then
+          Arr(Transfer_nu) = (dgrho/grho/k2) * (phinorm_table(1)/2._dl)
+       else
+          Arr(Transfer_nu) = dgrho/grho/k2
+       end if
     else
        Arr(Transfer_nu) = 0
     end if
@@ -3048,7 +3163,7 @@ contains
 
     !if (a_osc.lt.CP%aeq) then
     !if (CP%ma.ge.1.e-25) then
-    if (CP%m_ovH0 .ge. 10._dl) then !RL 070324
+    if (CP%ma .ge. 1.44e-32_dl) then !RL 070324
        dgrho = dgrho+(clxc*grhoc + clxb*grhob)/a+grhoax_t*clxax_kg !RL replaced axion pert with kg
        grho =  grho+(grhoc+grhob)/a+grhoax_t
     else
@@ -3065,7 +3180,11 @@ contains
     
     growth = 0._dl
     Arr(Transfer_f) = growth
-    Arr(Transfer_tot) = dgrho/grho/k2
+    if (CP%axion_isocurvature) then
+       Arr(Transfer_tot) = (dgrho/grho/k2) * (phinorm_table(1)/2._dl)
+    else
+       Arr(Transfer_tot) = dgrho/grho/k2
+    end if
 
   end subroutine outtransf
 
@@ -3975,6 +4094,9 @@ contains
     !if (tau .lt. CP%tau_osc) then
     !if (a .lt. CP%a_osc) then
     !if (a .le. CP%a_osc) then !RL
+    !RL 071026: EV%oscillation_started is now set for tensors by the tau_osc
+    !switch event in GaugeInterface_EvolveTens (it used to be scalar-only,
+    !which left this branch on the KG tables past a_osc and crashed dverk).
     if (.not. EV%oscillation_started) then !RL
        !call spline_out(loga_table,rhoaxh2ovrhom_logtable,rhoaxh2ovrhom_logtable_buff,ntable,dlog10(a),gr)
        !write(*,*) a, gr

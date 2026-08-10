@@ -119,7 +119,8 @@
         real(dl) ScalarPower,k, lnrat
         integer in
 
-          lnrat = log(k/P%k_0_scalar)
+        lnrat = log(k/P%k_0_scalar)
+        !print*, 'RL, P%ScalarPowerAmp(in)', P%ScalarPowerAmp(in)
           ScalarPower=P%ScalarPowerAmp(in)*exp((P%an(in)-1)*lnrat + P%n_run(in)/2*lnrat**2)   
      
 !         ScalarPower = ScalarPower * (1 + 0.1*cos( lnrat*30 ) )

@@ -56,12 +56,15 @@ program driver
   integer reni ! RH
   !Control Flag
   integer badflag
-  real(dl), allocatable :: RHCl_temp(:,:,:), RHCl_temp_lensed(:,:,:), RHCl_temp_tensor(:,:,:) !RL 111523 moving the RHCl_temp arrays here (might change later) to eliminate the stack overflow problem
-  !!call cpu_time(clock_totstart) ! RH timing
+    !!call cpu_time(clock_totstart) ! RH timing
 
   real(dl) twobeta_tgt, beta_coeff, y_phase, movHETA_beta, movHETA_new
   real(dl) twobeta_new, twobeta_old1, twobeta_old2, hETA_beta, hETA_new
   real(dl) hosc_new, hosc_old1, hosc_old2, hETA_old1, hETA_old2, beta_tol !RL 030624
+  !RL 072826: the isocurvature amplitude expressed in all three parameterizations
+  real(dl) :: A_iso_equiv, r_a_equiv, Hinf_equiv
+  !movH_switch as supplied by the user, kept so the realized value can be compared to it
+  real(dl) :: movH_requested
   ! End axion stuff
 
   InputFile = ''
@@ -76,6 +79,9 @@ program driver
   outroot = Ini_Read_String('output_root')
   if (outroot /= '') outroot = trim(outroot) // '_'
 
+  !The axion abundance is always obtained by solving for the initial field value
+  !phi_ini from the requested omaxh2/axfrac. To hold phi_ini fixed instead, vary
+  !omaxh2 until the reported phi_ini/Mpl (feedback_level > 0) matches the target.
   highL_unlensed_cl_template = Ini_Read_String_Default('highL_unlensed_cl_template',highL_unlensed_cl_template)
 
   call CAMB_SetDefParams(P)
@@ -83,6 +89,17 @@ program driver
   P%WantScalars = Ini_Read_Logical('get_scalar_cls')
   P%WantVectors = Ini_Read_Logical('get_vector_cls',.false.)
   P%WantTensors = Ini_Read_Logical('get_tensor_cls',.false.)
+  !RL 072826: tensors are deferred to AxiECAMB 2.0; this version is scalar-only.
+  !We stop instead of quietly resetting to F, because P%WantCls below is
+  !WantScalars .or. WantTensors .or. WantVectors -- a tensors-only run reset to F
+  !would read no l_max_scalar and write no Cl files, yet still finish without
+  !reporting any error, leaving the user with silently empty output.
+  if (P%WantTensors) then
+     write(*,*) '*** Tensors for AxiECAMB are still under construction.'
+     write(*,*) '*** Tensor spectra are deferred to AxiECAMB 2.0; this version is'
+     write(*,*) '*** scalar-only (adiabatic and isocurvature). Set get_tensor_cls = F.'
+     stop 'Error: get_tensor_cls = T is not supported in this version.'
+  end if
 
   P%OutputNormalization=outNone
   output_factor = Ini_Read_Double('CMB_outputscale',1.d0)
@@ -141,7 +158,6 @@ program driver
   P%H0     = Ini_Read_Double('hubble')
   P%H0_in_Mpc_inv = dble(P%H0)/dble(c/1.0d3) !RL
   P%H0_eV = h_P*P%H0_in_Mpc_inv/(Mpc_in_sec*2._dl*const_pi*elecV) !RL
-
   P%omegak= Ini_Read_Double('omk')
   !RL 120124: I need radiation fraction for assigning the DE fraction of axions, which in turn needs the neutrino fraction. Hence I have to take out this assignment separately
   if (Ini_Read_Logical('use_physical',.false.)) then 
@@ -150,9 +166,28 @@ program driver
      P%omegan = Ini_Read_Double('omega_neutrino')
   end if
 
-  !!P%dfac = Ini_Read_Double('movH_switch') !RL 092623 switch time
-  P%dfac = 10._dl !RL 121924 making movH internal
-  ntable = nint(P%dfac*100) + 1 !RL 111123
+  !movH_switch is the requested KG-to-EFA switch point m_ax/H_*. It is deliberately
+  !independent of accuracy_boost so that it can be set by the user. The default of 10
+  !is the v1.1 baseline, so a .ini that omits the key still runs unchanged.
+  !Note this is the *requested* value: for a window of masses the code may re-solve it
+  !to avoid a switch during recombination (see the a_skip/a_skipst block below), so the
+  !realized switch can differ. Both are reported at feedback_level > 0.
+  P%dfac = Ini_Read_Double('movH_switch', 10._dl)
+  movH_requested = P%dfac
+  !Guard rails on movH_switch. Baseline 10 is the validated minimum; larger values track
+  !more KG oscillation cycles and only gain accuracy when the oscillations stay resolved
+  !in time, i.e. with a correspondingly higher AccuracyBoost.
+  if (P%dfac < 10.d0) then
+     error stop 'Error: movH_switch below the baseline value 10 is not supported.'
+  end if
+  if (P%dfac > 10.d0 .and. AccuracyBoost < 2.d0) then
+     write(*,*) 'Note: verified settings are movH_switch = 10 with AccuracyBoost = 1.'
+     write(*,*) 'Sufficient for data analysis. For other combinations, check'
+     write(*,*) 'convergence of your target observables.'
+  end if
+
+  ntable = nint(P%dfac*100) + 1
+  
 
   P%tcmb   = Ini_Read_Double('temp_cmb',COBE_CMBTemp)
   P%yhe    = Ini_Read_Double('helium_fraction',0.24_dl)
@@ -283,7 +318,7 @@ program driver
         P%omegada = Ini_Read_Double('omdah2')/(P%H0/100)**2
         ! Read in Axion faction and compute density
         P%axfrac = Ini_Read_Double('axfrac')
-        if (P%m_ovH0 .ge. 10._dl) then !RL 120124 - DM case
+        if (P%ma .ge. 1.44e-32_dl) then !RL 120124 - DM case
 
            P%omegaax = P%axfrac*P%omegada 
            P%omegac = (1-P%axfrac)*P%omegada
@@ -299,7 +334,7 @@ program driver
         ! read in axion densities and matter densities
         P%omegac = Ini_Read_Double('omch2')/(P%H0/100)**2
         P%omegaax = Ini_Read_Double('omaxh2')/(P%H0/100)**2
-        if (P%m_ovH0 .ge. 10._dl) then !RL 120124 - DM case 
+        if (P%ma .ge. 1.44e-32_dl) then !RL 120124 - DM case 
            P%axfrac = P%omegaax/(P%omegac+P%omegaax)
         else !RL 120124 - DE case
            P%axfrac = P%omegaax/(1.0d0-P%omegab-P%omegac - P%omegan -P%omegak - P%omegah2_rad/((P%H0/1.d2)**2.0d0))
@@ -313,15 +348,14 @@ program driver
 !!!write(*, *) 'Budget for DE:', P%axfrac*(1._dl-P%omegab-P%omegac - P%omegan -P%omegak - P%omegah2_rad/((P%H0/1.d2)**2.0d0))
 !!!write(*, *) 'P%omegaax', P%omegaax
 
-     P%Hinf = Ini_Read_Double('Hinf') ! H inflation in GeV 
-     P%Hinf = (10**P%Hinf)/mplanck ! computing the ratio of Hinflation to Mplanck
+!     P%Hinf = Ini_Read_Double('Hinf') ! H inflation in GeV !RL 110625
+!     P%Hinf = (10**P%Hinf)/mplanck ! computing the ratio of Hinflation to Mplanck !RL 110625
      !       print*, 'This is Hinflation renee', P%Hinf
-     P%axion_isocurvature = Ini_Read_Logical('axion_isocurvature', .true.)
-     !RL 121924 disable isocurvature
-     if (P%axion_isocurvature .eqv. .true.) then
-        write(*, *) 'WARNING: axion isocurvature disabled in this release, proceeding without'
-        P%axion_isocurvature = .false.
-     end if
+!!     !RL 121924 disable isocurvature
+!!     if (P%axion_isocurvature .eqv. .true.) then
+!!        write(*, *) 'WARNING: axion isocurvature disabled in this release, proceeding without'
+!!        P%axion_isocurvature = .false.
+!!     end if
 
 
   else
@@ -330,8 +364,65 @@ program driver
      P%omegac = Ini_Read_Double('omega_cdm')
      P%omegav = Ini_Read_Double('omega_lambda')
      P%omegaax = Ini_Read_Double('omega_axion')/(P%H0/100)**2
-     P%ma     = Ini_Read_Double('m_ax')  
+     P%ma     = Ini_Read_Double('m_ax')
+     if (P%ma < 0) P%ma = 10**P%ma   !negative m_ax is read as log10(m_ax/eV)
+     P%m_ovH0 = P%ma/P%H0_eV
+     !Densities are given directly in this convention, so the axion fraction is derived
+     !rather than input. Same DM/DE split as the use_physical = T, use_axfrac = F path.
+     P%use_axfrac = .false.
+     if (P%ma .ge. 1.44e-32_dl) then
+        P%axfrac = P%omegaax/(P%omegac+P%omegaax)
+     else
+        P%axfrac = P%omegaax/(1.0d0-P%omegab-P%omegac-P%omegan-P%omegak &
+             -P%omegah2_rad/((P%H0/1.d2)**2.0d0))
+     end if
 
+  end if
+
+  !RL 072826: tens_ratio is no longer read. It only ever fed the tensor-linked
+  !isocurvature mode, deferred to AxiECAMB 2.0 along with tensor spectra. r_val is kept
+  !in CAMBparams for 2.0 but nothing reads it now; it and Hinf are zeroed here because
+  !CAMB_SetDefParams initializes neither and the structure is copied by value. A
+  !leftover tens_ratio line in an old .ini is simply ignored.
+  P%r_val = 0._dl
+  P%Hinf  = 0._dl
+  !Isocurvature is off by default, matching v1.0 behaviour, so that a .ini written for
+  !v1.0 runs unchanged. Every isocurvature key below is read only when it is switched
+  !on; an adiabatic run therefore needs none of them present.
+  P%axion_isocurvature = Ini_Read_Logical('axion_isocurvature', .false.)
+
+  !Defaults for the adiabatic case, where none of these are read.
+  P%iso_input_mode  = 2
+  P%A_iso_input     = 0._dl
+  P%r_a_iso         = 0._dl
+  P%n_a_iso         = 0._dl
+  P%iso_consistency = .false.
+
+  if (P%axion_isocurvature) then
+     !Isocurvature parameterization interface (paper Sec. "Isocurvature parameters and
+     !interface"). Three scalar-only modes selecting how the primordial spectrum
+     !Delta^2_iso(k) = A_iso (k/k0)^n_a_iso is specified, with k0 = pivot_scalar:
+     !  1: (A_iso, n_a_iso)   2: (r_a_iso, n_a_iso) [default]   3: Hinf
+     !Each mode requires its own amplitude and ignores the other two. Mode 3 is resolved
+     !into (r_a_iso, n_a_iso) after InitialPower_ReadParams below, where A_s is available.
+     P%iso_input_mode  = Ini_Read_Int('iso_input_mode', 2)
+     P%n_a_iso         = Ini_Read_Double('n_a_iso', 0.0d0)
+     P%iso_consistency = Ini_Read_Logical('iso_consistency', .false.)
+
+     if (P%iso_input_mode == 1) then
+        P%A_iso_input = Ini_Read_Double('A_iso')
+     else if (P%iso_input_mode == 2) then
+        P%r_a_iso = Ini_Read_Double('r_a_iso')
+     else if (P%iso_input_mode == 3) then
+        !Hinf is log10(H_inf/GeV), so it is legitimately negative for inflation scales
+        !below 1 GeV. Only the transformed amplitude is required to be positive and
+        !finite; the check below catches underflow of 10**Hinf to zero and overflow.
+        P%Hinf = Ini_Read_Double('Hinf')
+        P%Hinf = (10.d0**P%Hinf)/mplanck    !-> dimensionless H_inf/Mpl (reduced Planck mass)
+     else
+        write(*,*) 'Error: iso_input_mode must be 1, 2, or 3. Got:', P%iso_input_mode
+        error stop 'Error: invalid iso_input_mode.'
+     end if
   end if
 
   !	print*, 'hi renee omk', P%omegak, 'omegav', P%omegav, 'grhog', grhog, 'P%grhor', (P%grhor*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0, 'omegah2_rad', P%omegah2_rad 
@@ -403,6 +494,13 @@ program driver
   call Reionization_ReadParams(P%Reion, DefIni)
   call InitialPower_ReadParams(P%InitPower, DefIni, P%WantTensors)
   call Recombination_ReadParams(P%Recomb, DefIni)
+
+  !RL 072826: validate the isocurvature parameterization inputs, and only validate. Doing it
+  !here means a bad .ini fails before the expensive background integration, while every
+  !derived quantity -- r_a_iso from Hinf, amp_i, the equivalent parameterizations and the
+  !consistency relation -- is computed together after w_evolve, where the solved initial
+  !field value phinorm_table(1) is finally available. Scalar-only: no tensor quantity is
+  !read or written anywhere in the interface.
   if (Ini_HasKey('recombination')) then
      i = Ini_Read_Int('recombination',1)
      if (i/=1) stop 'recombination option deprecated'
@@ -418,7 +516,6 @@ program driver
         numstr = Ini_Read_String('initial_vector',.true.)
         read (numstr,*) P%InitialConditionVector(1:initial_iso_axion)
      end if
-     if (P%Scalar_initial_condition/= initial_adiabatic) use_spline_template = .false.
   end if
 
   if (P%WantScalars) then
@@ -487,7 +584,7 @@ program driver
   P%MassiveNuMethod  = Ini_Read_Int('massive_nu_approx',Nu_best)
 
   ThreadNum      = Ini_Read_Int('number_of_threads',ThreadNum)
-  use_spline_template = Ini_Read_Logical('use_spline_template',use_spline_template)
+  use_spline_template = Ini_Read_Logical('use_spline_template',.false.)
 
   DoTensorNeutrinos = DoTensorNeutrinos .or. HighAccuracyDefault
   if (do_bispectrum) then
@@ -523,7 +620,7 @@ program driver
   call w_evolve(P, badflag)
 
   !First check if we're in the window before recombination where the photon ETA is an issue
-  if (P%dfac .lt. 23._dl .and. P%m_ovH0 .ge. 10._dl .and. P%ma .lt. 1.e-25_dl &
+  if (P%dfac .lt. 23._dl .and. P%ma .ge. 1.44e-32_dl .and. P%ma .lt. 1.e-25_dl &
        &.and. P%a_osc*(P%omegaax/(P%omegac+P%omegaax))/aeq_LCDM .gt. 0.03_dl &
        &.and. P%a_osc .lt. P%a_skipst) then !RL 022624 - is an empirically tuned number 0.03_dl 
      !if (P%a_osc .lt. 1._dl) then
@@ -638,6 +735,79 @@ program driver
   
   if (.not. CAMB_ValidateParams(P)) stop 'Stopped due to parameter error'
 
+  !Report the converged initial field value once, for adiabatic and isocurvature runs
+  !alike. From the code normalization v1 = sqrt(4 pi G/3) h phi:  phi/Mpl = sqrt(6) v1 / h.
+  !Reported here rather than inside the background solver because that routine is called
+  !repeatedly while movH_switch is re-solved, which would print one line per attempt.
+  if (FeedbackLevel > 0) then
+     write(*,'("axion phi_ini/Mpl    = ",f9.6)') sqrt(6._dl)*phinorm_table(1)/(P%H0/100._dl)
+     !movH_switch is a requested value: for a window of masses the code re-solves it above
+     !so the KG-to-EFA switch does not land during recombination. Both are reported so the
+     !switch that actually governed the run is never inferred from the .ini alone.
+     write(*,'("movH_switch input    = ",f9.4)') movH_requested
+     write(*,'("movH_switch used     = ",f9.4)') P%dfac
+     if (abs(P%dfac - movH_requested) > 1.d-8) then
+        write(*,*) 'The realized switch may differ from the requested value when the'
+        write(*,*) 'switch is near recombination, see README and Appendices B & E of'
+        write(*,*) 'arXiv: 2412.15192'
+     end if
+  end if
+
+  !RL 072826: the isocurvature amplitude interface, in one place. The three modes are three
+  !descriptions of a single internal amplitude amp_i, related by a bijection once the
+  !background has converged:
+  !   amp_i = A_iso*v1^2/4 = A_s*r_a_iso*h^2/48,  r_a_iso = 2 (H_inf/Mpl)^2/(pi^2 A_s),
+  !with v1 = phinorm_table(1), the solved initial field value in code units (set as
+  !v_vec(1,1) = vtwiddle_init and copied into the table, so the two are bit-identical).
+  !All of this needs v1, so it runs after the abundance iteration rather than at read time;
+  !only the inputs w_evolve itself consumes are resolved earlier.
+  if (P%axion_isocurvature) then
+     !mode 3 resolves into r_a_iso first, for a massless spectator field; from here on it is
+     !indistinguishable from mode 2. Hinf itself is not gated, matching axionCAMB and v1.0;
+     !a degenerate value surfaces below as a non-positive r_a_iso.
+     if (P%iso_input_mode == 3) then
+        P%r_a_iso = 2.d0*(P%Hinf**2)/((const_pi**2)*P%InitPower%ScalarPowerAmp(1))
+        if (FeedbackLevel > 0) write(*,'("axion iso mode 3: derived r_a_iso = ",es11.4)') P%r_a_iso
+     end if
+     !amp_i in the internal per-delta-phi-tilde_i units: delta_a(tau_i) = 2 dphi/phi_i.
+     !The r_ax convention is A_s r_ax h^2/48 = (A_s r_ax/8)(Mpl/M)^2 with code mass scale
+     !M = sqrt(6) Mpl / h, from v1 = sqrt(4 pi G/3) h phi.
+     if (P%iso_input_mode == 1) then
+        P%amp_i = P%A_iso_input*(phinorm_table(1)**2)/4._dl
+     else
+        P%amp_i = P%InitPower%ScalarPowerAmp(1)*P%r_a_iso*((P%H0/100._dl)**2)/48._dl
+     end if
+     !the same amplitude expressed in the other two parameterizations
+     A_iso_equiv = 4._dl*P%amp_i/(phinorm_table(1)**2)
+     r_a_equiv   = 48._dl*P%amp_i/(P%InitPower%ScalarPowerAmp(1)*((P%H0/100._dl)**2))
+     Hinf_equiv  = dsqrt(r_a_equiv*(const_pi**2)*P%InitPower%ScalarPowerAmp(1)/2._dl)
+     !Mode 1 specifies A_iso, so its r_a_iso is the derived equivalent; adopting it makes the
+     !value meaningful downstream and lets the relation below be written once for all modes.
+     if (P%iso_input_mode == 1) P%r_a_iso = r_a_equiv
+     !Single amplitude check covering all three modes: by this point r_a_iso is the
+     !finalized amplitude whichever mode was used (read directly in mode 2, derived from
+     !Hinf in mode 3, back-converted from A_iso in mode 1). A non-positive value would
+     !produce identically zero isocurvature while still reporting a successful run.
+     if (P%r_a_iso <= 0.d0) then
+        write(*,*) 'Error: non-positive isocurvature amplitude for iso_input_mode =', P%iso_input_mode
+        write(*,*) '       r_a_iso =', P%r_a_iso, '  A_iso =', A_iso_equiv
+        write(*,*) '       Use axion_isocurvature = F for an adiabatic-only run.'
+        error stop 'Error: non-positive isocurvature amplitude.'
+     end if
+     if (P%iso_consistency) then
+        P%n_a_iso = -P%r_a_iso/8.d0
+        if (FeedbackLevel > 0) write(*,'("axion iso_consistency: n_a_iso = -r_a_iso/8 = ",es11.4)') P%n_a_iso
+     end if
+     if (FeedbackLevel > 0) then
+        write(*,'("axion iso_input_mode = ",i2)')     P%iso_input_mode
+        write(*,'("axion A_iso          = ",es11.4)') A_iso_equiv
+        write(*,'("axion r_a_iso        = ",es11.4)') r_a_equiv
+        !Hinf carries no axion prefix: the inflationary Hubble rate is a property of
+        !inflation, not of the axion.
+        write(*,'("Hinf [log10 GeV]     = ",f9.4)')   dlog10(Hinf_equiv*mplanck)
+     end if
+  end if
+
 #ifdef RUNIDLE
   call SetIdle
 #endif
@@ -648,48 +818,26 @@ program driver
 !!!!! This is where we need to be renee, but where are the cls
 !!!! regenerate the spectra here
   if (global_error_flag==0) then 
-
-     call CAMB_GetResults(P)
-
-
      if (P%axion_isocurvature) then 
         !          print*, 'computing isocurvature' 
-        if (P%WantScalars) then
-           allocate(RHCl_temp(size(Cl_scalar, 1), size(Cl_scalar, 2), size(Cl_scalar, 3))) !RL 111523
-           RHCl_temp(lmin:P%Max_l,1,C_Temp:C_last) = Cl_scalar(lmin:P%Max_l,1,C_Temp:C_last)
-        end if
-
-        if (P%DoLensing) then
-           allocate(RHCl_temp_lensed(size(Cl_lensed, 1), size(Cl_lensed, 2), size(Cl_lensed, 3))) !RL 111523
-           RHCl_temp_lensed(lmin:P%Max_l,1,C_Temp:C_Cross) = Cl_lensed(lmin:P%Max_l,1,C_Temp:C_Cross)
-        end if
-
-        if (P%WantTensors) then
-           allocate(RHCl_temp_tensor(size(Cl_tensor, 1), size(Cl_tensor, 2), size(Cl_tensor, 3)))  !RL 111523
-           RHCl_temp_tensor(lmin:P%Max_l,1,C_Temp:C_Cross) = Cl_tensor(lmin:P%Max_l,1,C_Temp:C_Cross)
-        end if
-
         P%Scalar_initial_condition = 6
         P%InitPower%rat(1) =  0
         P%InitPower%ant(1) = 0
         P%InitPower%ScalarPowerAmp(1) = P%amp_i
-        P%InitPower%an(1)= 1-P%r_val/8.d0
-        call CAMB_GetResults(P)
-        if (P%WantScalars)  then 
-           Cl_scalar(lmin:P%Max_l,1,C_Temp:C_last) = Cl_scalar(lmin:P%Max_l,1,C_Temp:C_last)  &
-                +  RHCl_temp(lmin:P%Max_l,1,C_Temp:C_last)
-        end if
-
-        if (P%DoLensing) then 
-           Cl_lensed(lmin:lmax_lensed,1,C_Temp:C_Cross) = Cl_lensed(lmin:lmax_lensed,1,C_Temp:C_Cross) &
-                +  RHCl_temp_lensed(lmin:lmax_lensed,1,C_Temp:C_Cross) 
-        end if
-
-        if (P%WantTensors) then 
-           Cl_tensor(lmin:P%Max_l_tensor,1,C_Temp:C_Cross) = Cl_tensor(lmin:P%Max_l_tensor,1,C_Temp:C_Cross)  &
-                +  RHCl_temp_tensor(lmin:P%Max_l_tensor,1,C_Temp:C_Cross) 
-        end if
+        !RL 070926: iso tilt from the parameterization interface; n_a_iso = 0 is
+        !scale-invariant (CAMB index 1). v1.0 hardcoded 1 - r_a_iso/8 (consistency
+        !relation always on); that behavior is now iso_consistency = T (modes 2, 3).
+        P%InitPower%an(1) = 1.0d0 + P%n_a_iso
      end if
+     !The fiducial-template Cl interpolation is built from an adiabatic high-L template
+     !and must not be applied to isocurvature spectra (paper Sec. "Isocurvature parameters
+     !and interface"). Tested here, immediately before CAMB_GetResults, because this is the
+     !first point at which Scalar_initial_condition is 6 for an axion isocurvature run: the
+     !block above sets it, having been read as 1 from the .ini. Placing the test any earlier
+     !silently misses every axion run, and placing it before the .ini read lets a stray
+     !use_spline_template = T override it.
+     if (P%Scalar_initial_condition /= initial_adiabatic) use_spline_template = .false.
+     call CAMB_GetResults(P)
   end if
 
 
@@ -730,9 +878,6 @@ program driver
   if (allocated(phidotnorm_table_ddlga)) deallocate(phidotnorm_table_ddlga)
   if (allocated(rhoaxh2ovrhom_logtable)) deallocate(rhoaxh2ovrhom_logtable)
   if (allocated(rhoaxh2ovrhom_logtable_buff)) deallocate(rhoaxh2ovrhom_logtable_buff)
-  if (allocated(RHCl_temp)) deallocate(RHCl_temp)
-  if (allocated(RHCl_temp_lensed)) deallocate(RHCl_temp_lensed)
-  if (allocated(RHCl_temp_tensor)) deallocate(RHCl_temp_tensor)
 
   call CAMB_cleanup
   !!call cpu_time(clock_totstop) ! RH timing	

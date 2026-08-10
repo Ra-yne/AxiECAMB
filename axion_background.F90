@@ -59,6 +59,7 @@ contains
     !Correction factor from massless to massive neutrino energy densities, constant to go from massive neutrino
     !mass fractions to massive neutrino massive values
     real(dl)  rhonu,nu_constant
+    real(dl) :: omaxh2_convergencethresh !RL 040926
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     ! non-trivial aspects to sharing neutrino data structures in new subroutines of CAMB
     ! so we recompute somethings twice, but these are single numbers
@@ -82,6 +83,7 @@ contains
     !real(dl) fax
     ! scale factor at equality estimated under assumption axions redshift purely as CDM
     real(dl) regzeq
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -217,7 +219,6 @@ contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !RL testing the spline for phi
     real(dl) d1v1, d2v1, d1v2, d2v2
-    real(dl) movH_test !RL for testing purposes, should delete in the end
 !!!!!!!!!!!!!
     !Timing variables
     !real :: clock_start, clock_stop   
@@ -304,7 +305,6 @@ contains
     !RL pasted DG's fix or lhsqcont_massless
     lhsqcont_massless=(Params%Nu_massless_degeneracy*grhor*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0
 
-
     Params%omegah2_rad=Params%omegah2_rad+lhsqcont_massless
     !const from modules.f90
     nu_constant=(7.0d0/120.0d0)*(const_pi**4.0d0)/(zeta3*1.5d0)
@@ -323,6 +323,9 @@ contains
        !	call Nu_rho(1.0d0,rhonu)
        !	print*,Nu_masses(k)*conv
     enddo
+
+
+
     !print*,lhsqcont_massive(1)/Params%Nu_mass_degeneracies(1)
 
     !! Params%omegah2_rad=Params%omegah2_rad+
@@ -608,7 +611,6 @@ contains
     !Make the range that spans 2x or /2 of the initial guess
     v1_initguess(1) = v1_initguess(2)/2.0d0
     v1_initguess(3) = v1_initguess(2)*2.0d0
-    !v1_initguess(3) = v1_initguess(2)*2.1d0
     !Reassign the middle entry to be the average of the two ends of the guess range
     v1_initguess(2) = (v1_initguess(1) + v1_initguess(3))/2.0d0
 
@@ -752,7 +754,7 @@ contains
                 
 
 
-             if (maxion_twiddle .lt. 10._dl) then !RL 061124
+             if (maxion_twiddle .lt. 3._dl .or. Params%ma .lt. 1.44e-32_dl) then
                 !(case of no oscillation and m/H_* < 10, just use result from full scalar field evolution) !RL 061124
                 !write(*, *) 'maxion_twiddle', maxion_twiddle
                 !RL f_arr=dexp(f_arr)
@@ -889,22 +891,31 @@ contains
           end if
           
 
-             !Decide whether to end the do-while loop by comparing to a determined precision (1e-8 here as a placeholder now - do we really need to link it to accuracy boost? Getting super accurate here doesn't quite slow the code down...)
-          if (abs(omaxh2_guess(j)/omegah2_ax - 1.0d0) .lt. 1.0d-6) then
-          !if (abs(omaxh2_guess(j)/omegah2_ax - 1.0d0) .lt. 1.0) then
-                !!   write(*, *) 'Rayne, in the background, final wcorr_coeff, rhorefp, aosc, final omaxh2_guess(j),  v1_initguess(j)', wcorr_coeff, rhorefp, aosc, phiosc, phidosc, omaxh2_guess(j),  v1_initguess(j)
-                vtwiddle_init = v1_initguess(j)
-                !Don't forget to assign aosc too
-                Params%a_osc= aosc_guess(j)
-                !if (Params%a_osc .ge. 1.0d0) then
-                !   Params%a_osc=1.0d0
-                !endif
-                iter_c = -1
-                exit
-             end if
-          enddo
+          !Convergence criterion for the phi_ini shooting loop: the trial abundance must
+          !match the requested one to this fractional precision. Tightening it further has
+          !negligible cost but no measurable effect on observables.
+          omaxh2_convergencethresh = 1.0d-6
+
+          if (abs(omaxh2_guess(j)/omegah2_ax - 1.0d0) .lt. omaxh2_convergencethresh) then
+
+             !Diagnostic for background abundance-convergence problems. Left in place,
+             !commented, so it can be switched back on quickly when the shooting loop
+             !misbehaves for a new mass/abundance combination.
+             !print*, 'AxiECAMB abundance converged: j =', j, ' omaxh2(trial), omaxh2(target), frac. diff. =', &
+             !     omaxh2_guess(j), omegah2_ax, abs(omaxh2_guess(j)/omegah2_ax - 1.0d0)
+             vtwiddle_init = v1_initguess(j)
+             !Don't forget to assign aosc too
+             Params%a_osc= aosc_guess(j)
+             !if (Params%a_osc .ge. 1.0d0) then
+             !   Params%a_osc=1.0d0
+             !endif
+             iter_c = -1
+             exit
+          end if
+       enddo
           !write(*, *) 'Rayne, iter_c, aosc_guess(1), aosc_guess(2), aosc_guess(3), omaxh2_guess(1), omaxh2_guess(2), omaxh2_guess(3), v1_initguess(1), v1_initguess(2), v1_initguess(3)', iter_c, aosc_guess(1), aosc_guess(2), aosc_guess(3), omaxh2_guess(1), omaxh2_guess(2), omaxh2_guess(3), v1_initguess(1), v1_initguess(2), v1_initguess(3)
           !!write(040324, '(36e52.42)') iter_c, aosc, Params%wEFA_c, omaxh2_guess(1), omaxh2_guess(2), omaxh2_guess(3), v1_initguess(1), v1_initguess(2), v1_initguess(3)
+          
           if (iter_c .eq. -1) exit !The previous exit is to exit that if statement if I found the solution, but I still need to exit the while loop
           if (iter_c .eq. nphi - 1) then !Warning sign if iter_c exceeds maximum iteration
              print*, 'Warning: exceeding the maximum number of iteration for bisection: &
@@ -976,7 +987,7 @@ contains
           aosc_guess(2) = 15.0d0
           !Adjust the end value of a if the higher omaxh2 guess is close to the true value by approx. 10%
           if (omaxh2_guess(3)/omegah2_ax .lt. 1.1d0 .and. a_final .eq. 1.0d0 .and. aosc_guess(3)*1.1d0 .lt. 1.0d0) then
-             
+
              !!write(*, *) 'Rayne threshold aosc*1.1d0', aosc*1.1d0
              a_final=aosc_guess(3)*1.1d0 !multiply that aosc by 1.1 just to be safe
              !reassign the log_a_final
@@ -1137,6 +1148,8 @@ contains
             &(1._dl + (Params%nu_massless_degeneracy + &
             &sum(Params%Nu_mass_degeneracies(1:Params%Nu_mass_eigenstates)))*(7._dl/8._dl)*&
             &((4._dl/11._dl)**(4._dl/3._dl)))/(omegah2_b+omegah2_dm+omegah2_ax) !RL 031724, the approximate aeq assuming a matter scaling of axions, used for phase-finding
+       !print*, 'RL, omegah2_b+omegah2_dm+omegah2_ax + (((Params%TCMB**4.0d0)/rhocrit)/(c**2.0d0)*a_rad*1.d1/(1.d4)) *sum(Params%Nu_mass_degeneracies(1:Params%Nu_mass_eigenstates)) * (7._dl/8._dl)*((4._dl/11._dl)**(4._dl/3._dl))', omegah2_b+omegah2_dm+omegah2_ax + (((Params%TCMB**4.0d0)/rhocrit)/(c**2.0d0)*a_rad*1.d1/(1.d4)) *sum(Params%Nu_mass_degeneracies(1:Params%Nu_mass_eigenstates)) * (7._dl/8._dl)*((4._dl/11._dl)**(4._dl/3._dl))
+       
        !!write(*, *) 'regzeq, aeq_LCDM, their fractional difference', regzeq, aeq_LCDM, regzeq/aeq_LCDM - 1._dl
        if (Params%a_osc.lt.regzeq) then
           Params%aeq=regzeq
@@ -1148,25 +1161,37 @@ contains
 
        !!feed out real (dl) valued version of all this stuff for output
        !put scalar field initial condition in planck units
-       Params%phiinit=vtwiddle_init*sqrt(6.0d0)
+       !Params%phiinit=vtwiddle_init*sqrt(6.0d0)
+       !print*, 'vtwiddle_init', vtwiddle_init
        !if (Params%use_axfrac) then
        !   Params%axfrac = Params%axfrac
        !else
        !   Params%axfrac = fax
        !end if
 
-       if (Params%axion_isocurvature) then
+       !The isocurvature amplitude amp_i is built in inidriver_axion.F90, after this routine
+       !returns, where phinorm_table(1) supplies v1 and all three parameterizations are
+       !handled together. The background solver no longer knows about isocurvature amplitudes.
 
-          Params%amp_i = Params%Hinf**2/(pi**2*Params%phiinit**2)
-          Params%r_val  = 2*(Params%Hinf**2/(pi**2.*Params%InitPower%ScalarPowerAmp(1)))
-          Params%alpha_ax = Params%amp_i/Params%InitPower%ScalarPowerAmp(1)
-          !print*, 'computing isocurvature', Params%amp_i, Params%r_val, Params%axfrac**2*Params%amp_i/Params%InitPower%ScalarPowerAmp(1), Params%Hinf
-          !print*, 'computing isocurvature, Params%amp_i, Params%r_val, Params%axfrac**2*Params%amp_i/Params%InitPower%ScalarPowerAmp(1), Params%Hinf'
+       !The converged initial field value phi_ini/Mpl is reported once from
+       !inidriver_axion.F90, after the abundance iteration. Reporting it here would print
+       !one line per call, and this routine is invoked repeatedly while movH_switch is
+       !re-solved.
+
+       !RL 070926: frozen-field initial condition requires m/H < 0.1 at the start of
+       !the background integration (paper Sec. "Isocurvature parameters and interface").
+       !The same threshold is enforced at the perturbation start in GetTauStart (cmbmain).
+       if (maxion_twiddle * a_arr(1) * hnot / littlehfunc(1) .ge. 0.1_dl) then
+          write(*,*) 'Error: m_ax/H_ini =', maxion_twiddle*a_arr(1)*hnot/littlehfunc(1), &
+               ' >= 0.1; the frozen-field initial condition is violated.'
+          stop
        end if
 
        !output omega_r
        Params%omegar=Params%omegah2_rad/hsq
        
+       ! Write full background: KG table up to a_osc, then analytic a^-3
+
 
        deallocate(a_arr, v_vec, littlehfunc, littlehfunc_buff, rhoaxh2_ov_rhom)
      end subroutine w_evolve

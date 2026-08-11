@@ -15,7 +15,7 @@ AxiECAMB (Axion Effective-method in CAMB) executes the effective method for ultr
 
 AxiECAMB heavily modifies the existing ultralight axion Boltzmann code axionCAMB (https://github.com/dgrin1/axionCAMB), which itself is based on CAMB (http://camb.info/, https://github.com/cmbant/CAMB) version Nov 2013. 
 
-When using AxiECAMB, please cite https://arxiv.org/abs/2412.15192. For its isocurvature features, please cite https://arxiv.org/abs/XXXX.XXXXX.
+When using AxiECAMB, please cite https://arxiv.org/abs/2412.15192. For its isocurvature features, please cite https://arxiv.org/abs/2608.07803.
 
 ----------------------------------------------------------------------
 #### <a name="basics"></a>Getting Started
@@ -78,7 +78,7 @@ Each mode requires only its own amplitude and ignores the other two. Setting iso
 
 At feedback_level > 0, AxiECAMB reports the derived initial field value phi_ini/Mpl together with the amplitude expressed in all three parameterizations.
 
-**Adiabatic and isocurvature spectra are computed in separate runs and are NOT summed by AxiECAMB.** Run each separately and sum them externally. 
+**Adiabatic and isocurvature spectra are computed in separate runs and are NOT summed by AxiECAMB.** Run each separately and sum them externally. In https://arxiv.org/abs/2608.07803, the lensed adiabatic spectrum is added to the unlensed isocurvature contribution, whose lensing correction is negligible over the parameter range considered.
 
 The fiducial-template Cl interpolation is forced off (use_spline_template = F) for isocurvature runs, which must never be interpolated against an adiabatic template.
 

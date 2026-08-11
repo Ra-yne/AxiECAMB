@@ -3111,27 +3111,21 @@ contains
 
     grhoax_t=dorp*(a**2.0d0)
     Arr(Transfer_kh) = k/(CP%h0/100._dl)
-    if (CP%axion_isocurvature) then
-       ! RL 051525 + RL 06**26: in axion-iso mode all species' perturbations
-       ! were sourced by the same IC `delta-phi-tilde_i = 1`, so every output
-       ! transfer is in "per-delta-phi-tilde_i" units.  Multiply each output
-       ! by phi_i/2 = phinorm_table(1)/2 to convert to "per-delta_a(tau_i)=1"
-       ! units, matching the IC role that delta_c(tau_i)=1 plays in public-
-       ! CAMB CDM-iso.  Single overall multiplier per output -- preserves
-       ! the dgrho compensation (clxax_kg, clxc, clxb stay raw in the dgrho
-       ! sum below; the Transfer_tot output picks up the same phi_i/2 factor).
-       Arr(Transfer_cdm)   = (clxc/k2)     * (phinorm_table(1)/2._dl)
-       Arr(Transfer_b)     = (clxb/k2)     * (phinorm_table(1)/2._dl)
-       Arr(Transfer_g)     = (clxg/k2)     * (phinorm_table(1)/2._dl)
-       Arr(Transfer_r)     = (clxr/k2)     * (phinorm_table(1)/2._dl)
-       Arr(Transfer_axion) = (clxax_kg/k2) * (phinorm_table(1)/2._dl)
-    else
-       Arr(Transfer_cdm)   = clxc/k2
-       Arr(Transfer_b)     = clxb/k2
-       Arr(Transfer_g)     = clxg/k2
-       Arr(Transfer_r)     = clxr/k2
-       Arr(Transfer_axion) = clxax_kg/k2
-    end if
+    ! RL 051525 + RL 06**26: in axion-iso mode all species' perturbations are
+    ! sourced by the same IC `delta-phi-tilde_i = 1`, so every transfer here is
+    ! in "per-delta-phi-tilde_i" units -- the same units as P%amp_i, which is
+    ! what InitPower%ScalarPowerAmp carries for an isocurvature run.  Keep them
+    ! that way: TransferData is consumed internally by Transfer_GetMatterPowerD,
+    ! Transfer_Get_sigma8 and Transfer_GetMatterPowerData, all of which pair it
+    ! with ScalarPower(), so any conversion applied here is double-counted
+    ! against amp_i and suppresses P(k) by (phi_i/2)^2.  The conversion to
+    ! "per-delta_a(tau_i)=1" units is a presentation choice and is applied once,
+    ! at the point of output, in Transfer_SaveToFiles.
+    Arr(Transfer_cdm)   = clxc/k2
+    Arr(Transfer_b)     = clxb/k2
+    Arr(Transfer_g)     = clxg/k2
+    Arr(Transfer_r)     = clxr/k2
+    Arr(Transfer_axion) = clxax_kg/k2
 
     !write(*, *) 'Rayne, transfer function for axions, transfer function for cdm', Arr(Transfer_axion), Arr(Transfer_cdm)
     !write(111608, '(36e52.42,\)') k, a, CP%a_osc, tau, CP%tau_osc, Arr(Transfer_axion), Arr(Transfer_cdm), Arr(Transfer_b), Arr(Transfer_g)
@@ -3141,11 +3135,7 @@ contains
 
     if (CP%Num_Nu_Massive > 0) then
        call MassiveNuVars(EV,y,a,grho,gpres,dgrho,dgq)
-       if (CP%axion_isocurvature) then
-          Arr(Transfer_nu) = (dgrho/grho/k2) * (phinorm_table(1)/2._dl)
-       else
-          Arr(Transfer_nu) = dgrho/grho/k2
-       end if
+       Arr(Transfer_nu) = dgrho/grho/k2
     else
        Arr(Transfer_nu) = 0
     end if
@@ -3180,11 +3170,7 @@ contains
     
     growth = 0._dl
     Arr(Transfer_f) = growth
-    if (CP%axion_isocurvature) then
-       Arr(Transfer_tot) = (dgrho/grho/k2) * (phinorm_table(1)/2._dl)
-    else
-       Arr(Transfer_tot) = dgrho/grho/k2
-    end if
+    Arr(Transfer_tot) = dgrho/grho/k2
 
   end subroutine outtransf
 

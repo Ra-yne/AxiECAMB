@@ -2247,6 +2247,25 @@ contains
     character(LEN=Ini_max_string_len), intent(IN) :: FileNames(*)
     !JD 08/13 Changes in here to PK arrays and variables
     integer i_PK
+    !RL: unit conversion for the isocurvature output, applied here and nowhere else.
+    !Internally every transfer is per delta-phi-tilde_i = 1, matching P%amp_i, which is
+    !what ScalarPower() carries for an isocurvature run; that pairing is what
+    !Transfer_GetMatterPowerD / Transfer_Get_sigma8 / Transfer_GetMatterPowerData rely
+    !on, so TransferData must stay in those units.  The published convention of
+    !Eq. (T_i_iso) is per delta_a(tau_i) = 1, reached by multiplying by
+    !phi_i/2 = phinorm_table(1)/2 -- the same role delta_c(tau_i) = 1 plays in
+    !public-CAMB CDM-iso.  Doing it on the way out keeps transfer_out.dat unchanged
+    !while leaving every internal consumer self-consistent.
+    real(dl) :: isonorm, outarr(Transfer_kh:Transfer_max)
+
+    isonorm = 1._dl
+    if (CP%axion_isocurvature) then
+       !Refuse rather than fall back to 1: writing field-unit transfers under the
+       !density-unit convention is exactly the silent mislabelling this change fixes.
+       if (.not. allocated(phinorm_table)) &
+            error stop 'Transfer_SaveToFiles: phinorm_table unallocated for an isocurvature run.'
+       isonorm = phinorm_table(1)/2._dl
+    end if
 
     do i_PK=1, CP%Transfer%PK_num_redshifts
        if (FileNames(i_PK) /= '') then
@@ -2255,7 +2274,14 @@ contains
           do ik=1,MTrans%num_q_trans
              if (MTrans%TransferData(Transfer_kh,ik,i)/=0) then
                 !                    write(fileio_unit,'(7E14.6)') MTrans%TransferData(Transfer_kh:Transfer_max,ik,i)
-                write(fileio_unit,'(9(ES15.8,1X))') MTrans%TransferData(Transfer_kh:Transfer_max,ik,i) ! axion
+                outarr = MTrans%TransferData(Transfer_kh:Transfer_max,ik,i)
+                !Only the perturbation amplitudes are rescaled.  Transfer_kh is a
+                !wavenumber and Transfer_f is a dimensionless growth rate f=dlnD/dlna;
+                !f is identically zero while GrowthRate is disabled, but it must stay
+                !unscaled so re-enabling it cannot silently corrupt the column.
+                outarr(Transfer_cdm:Transfer_axion) = outarr(Transfer_cdm:Transfer_axion)*isonorm
+                outarr(Transfer_tot)                = outarr(Transfer_tot)*isonorm
+                write(fileio_unit,'(9(ES15.8,1X))') outarr ! axion
                 !!!write(fileio_unit,'(36e52.42)') MTrans%TransferData(Transfer_kh:Transfer_max,ik,i) ! RL
              end if
           end do

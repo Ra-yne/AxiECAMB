@@ -16,12 +16,12 @@
        real(dl), parameter :: const_twopi=2._dl*const_pi, const_fourpi=4._dl*const_pi
        real(dl), parameter :: const_sqrt6=2.4494897427831780981972840747059_dl
        real(dl), parameter :: c = 2.99792458e8_dl
-       real(dl), parameter :: h_P = 6.62606896e-34_dl
+       real(dl), parameter :: h_P = 6.62607015e-34_dl
         
-       real(dl), parameter :: G=6.6738e-11_dl !data book 2012, last digit +/-8
+       real(dl), parameter :: G=6.67430e-11_dl !CODATA 2018, last two digits +/-15
        real(dl), parameter :: sigma_thomson = 6.6524616e-29_dl
-       real(dl), parameter :: sigma_boltz = 5.6704e-8_dl
-       real(dl), parameter :: k_B = 1.3806504e-23_dl
+       real(dl), parameter :: sigma_boltz = 5.670374419e-8_dl
+       real(dl), parameter :: k_B = 1.380649e-23_dl
        real(dl), parameter :: elecV = 1.60217646e-19_dl
 
 

@@ -192,10 +192,6 @@ program driver
   P%tcmb   = Ini_Read_Double('temp_cmb',COBE_CMBTemp)
   P%yhe    = Ini_Read_Double('helium_fraction',0.24_dl)
 
-  !Compute  some basic constants
-  rhocrit=(8.0d0*const_pi*G*1.d3/(3.0d0*((1.d7/(MPC_in_sec*c*1.d2))**(2.0d0))))**(-1.0d0)
-  omegah2_rad=((P%tcmb**4.0d0)/(rhocrit))/(c**2.0d0) !RL replaced the COBE temperature
-  omegah2_rad=omegah2_rad*a_rad*1.d1/(1.d4)
 
   !DG May 25 2015
   !Neutrino stuff out of usual order so that OmegaK Can be self consistently computed
@@ -301,7 +297,10 @@ program driver
 
 
   !     print*, P%Num_Nu_Massless, P%Num_Nu_Massive, rh_num_nu_massless, 'here 2'
-  omegah2_rad= omegah2_rad+(rh_Num_Nu_massless*P%grhor*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0     
+  !Photons and massless neutrinos, both from grhog. The photon term sits here rather
+  !than with the other basic constants above because grhog is not defined until now.
+  omegah2_rad= (grhog*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0 &
+       &+ (rh_Num_Nu_massless*P%grhor*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0
   P%omegah2_rad = omegah2_rad
 
   if (Ini_Read_Logical('use_physical',.false.)) then 

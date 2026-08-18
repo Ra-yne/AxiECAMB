@@ -295,10 +295,11 @@ contains
     grhom = 3.0d0*(hsq*1.d10)/(c**2.0d0) 
     grhog = ((kappa/(c**2.0d0)*4.0d0*sigma_boltz)/(c**3.0d0))*(Params%TCMB**4.0d0)*(Mpc**2.0d0) !RL replaced the COBE_CMBTemp
     grhor = (7.0d0/8.0d0)*((4.0d0/11.0d0)**(4.0d0/3.0d0))*grhog 
-    !calculate critical density
-    rhocrit=(8.0d0*const_pi*G*1.d3/(3.0d0*((1.d7/(MPC_in_sec*c*1.d2))**(2.0d0))))**(-1.0d0)
-    Params%omegah2_rad=((Params%TCMB**4.0d0)/(rhocrit))/(c**2.0d0) !RL replaced the COBE_CMBTemp
-    Params%omegah2_rad=Params%omegah2_rad*a_rad*1.d1/(1.d4)
+    !Photons from grhog, which is the same quantity the perturbations integrate and the
+    !same one lhsqcont_massless below is built from. Reaching the photon density through
+    !a_rad instead gives a slightly different number: a_rad and sigma_boltz are declared
+    !independently in constants.f90 and agree only to ten digits.
+    Params%omegah2_rad=(grhog*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0
     !calculate omega rad using standard formula
     !Contribution of photons and massless neutrinos to H/(100 km /s/Mpc)
     !lhsqcont_massless=(Params%Num_Nu_massless*grhor*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0
@@ -1144,7 +1145,7 @@ contains
        Params%aeq=10._dl**(Params%aeq) !RL fixed 012524
        !Sometimes this spline breaks if a_osc<a_eq, in that case simpler expressions can be used
        regzeq=(Params%omegah2_rad+sum(lhsqcont_massive))/(omegah2_b+omegah2_dm+omegah2_ax)
-       aeq_LCDM = (((Params%TCMB**4.0d0)/(rhocrit))/(c**2.0d0)*a_rad*1.d1/(1.d4))*&
+       aeq_LCDM = ((grhog*(c**2.0d0)/((1.d5**2.0d0)))/3.0d0)*&
             &(1._dl + (Params%nu_massless_degeneracy + &
             &sum(Params%Nu_mass_degeneracies(1:Params%Nu_mass_eigenstates)))*(7._dl/8._dl)*&
             &((4._dl/11._dl)**(4._dl/3._dl)))/(omegah2_b+omegah2_dm+omegah2_ax) !RL 031724, the approximate aeq assuming a matter scaling of axions, used for phase-finding

@@ -296,7 +296,7 @@ program driver
   ! RH again calculating this here so we make sure to add the neutrino density correctly to get omegak
 
   if (P%omegan > 0 .and. P%Num_Nu_massive > 0) then
-     rh_num_nu_massless = P%Num_Nu_Massless ! only using the massless neutrinos, and adding in omnuh2 later
+     rh_num_nu_massless = P%Nu_massless_degeneracy ! only using the massless neutrinos, and adding in omnuh2 later
   end if
 
 

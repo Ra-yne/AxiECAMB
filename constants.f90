@@ -19,20 +19,20 @@
        real(dl), parameter :: h_P = 6.62607015e-34_dl
         
        real(dl), parameter :: G=6.67430e-11_dl !CODATA 2018, last two digits +/-15
-       real(dl), parameter :: sigma_thomson = 6.6524616e-29_dl
+       real(dl), parameter :: sigma_thomson = 6.6524587321e-29_dl
        real(dl), parameter :: sigma_boltz = 5.670374419e-8_dl
        real(dl), parameter :: k_B = 1.380649e-23_dl
-       real(dl), parameter :: elecV = 1.60217646e-19_dl
+       real(dl), parameter :: elecV = 1.602176634e-19_dl
 
 
-       real(dl), parameter :: m_p = 1.672621637e-27_dl ! 1.672623e-27_dl
+       real(dl), parameter :: m_p = 1.67262192369e-27_dl
        real(dl), parameter :: m_H = 1.673575e-27_dl !av. H atom
-       real(dl), parameter :: m_e = 9.10938215e-31_dl
+       real(dl), parameter :: m_e = 9.1093837015e-31_dl
        real(dl), parameter :: mass_ratio_He_H = 3.9715_dl
  
 
        real(dl), parameter :: Gyr=3.1556926e16_dl
-       real(dl), parameter :: Mpc = 3.085678e22_dl !seem to be different definitions of this?
+       real(dl), parameter :: Mpc = 3.085677581e22_dl
        real(dl), parameter :: MPC_in_sec = Mpc/c ! Mpc/c = 1.029272d14 in SI units
 
        real(dl), parameter :: const_rhocrit=(8.0d0*const_pi*G*1.d3/(3.0d0*((1.d7/(MPC_in_sec*c*1.d2))**(2.0d0))))**(-1.0d0)
@@ -56,7 +56,7 @@
        real(dl), parameter :: line21_const = 3*l_21cm**2*C*h_P/32/const_pi/k_B*A10 * Mpc_in_sec * 1000
         !1000 to get in MiliKelvin
        real(dl), parameter :: COBE_CMBTemp = 2.7255_dl !(Fixsen 2009) used as default value
-       real(dl), parameter :: default_nnu = 3.046_dl
+       real(dl), parameter :: default_nnu = 3.044_dl
 
        
    end module constants

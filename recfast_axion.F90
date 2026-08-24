@@ -512,7 +512,7 @@ contains
 
 
     !       --- Parameter statements
-    real(dl), parameter :: tol=1.D-3                !Tolerance for R-K
+    real(dl), parameter :: tol=1.D-5                !Tolerance for R-K
 
     real(dl) dtauda,omegar
     external dtauda, dverk

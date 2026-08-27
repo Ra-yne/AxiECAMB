@@ -2251,20 +2251,18 @@ contains
     !Internally every transfer is per delta-phi-tilde_i = 1, matching P%amp_i, which is
     !what ScalarPower() carries for an isocurvature run; that pairing is what
     !Transfer_GetMatterPowerD / Transfer_Get_sigma8 / Transfer_GetMatterPowerData rely
-    !on, so TransferData must stay in those units.  The published convention of
-    !Eq. (T_i_iso) is per delta_a(tau_i) = 1, reached by multiplying by
-    !phi_i/2 = phinorm_table(1)/2 -- the same role delta_c(tau_i) = 1 plays in
-    !public-CAMB CDM-iso.  Doing it on the way out keeps transfer_out.dat unchanged
-    !while leaving every internal consumer self-consistent.
+    !on, so TransferData must stay in those units. transfer_out.dat instead holds
+    !T_i = delta_i/delta_ax(tau_i) of Eq. (T_i_iso), via phi_i/2 = phinorm_table(1)/2 on the
+    !denominator and k^2 undoing outtransf's delta_i/k^2 column convention.  Both apply to
+    !every density column, not just the axion: the axion IC is the only source in the run,
+    !driving the metric and through it every other species, so all the columns are responses
+    !to the same delta_a(tau_i) and share its normalization. This is only activated with axion isocurvature initial condition.
     real(dl) :: isonorm, outarr(Transfer_kh:Transfer_max)
 
-    isonorm = 1._dl
-    if (CP%axion_isocurvature) then
-       !Refuse rather than fall back to 1: writing field-unit transfers under the
-       !density-unit convention is exactly the silent mislabelling this change fixes.
-       if (.not. allocated(phinorm_table)) &
+    !Refuse rather than fall back to 1: writing field-unit transfers under the
+    !density-unit convention is exactly the silent mislabelling this change fixes.
+    if (CP%axion_isocurvature .and. .not. allocated(phinorm_table)) then
             error stop 'Transfer_SaveToFiles: phinorm_table unallocated for an isocurvature run.'
-       isonorm = phinorm_table(1)/2._dl
     end if
 
     do i_PK=1, CP%Transfer%PK_num_redshifts
@@ -2279,6 +2277,9 @@ contains
                 !wavenumber and Transfer_f is a dimensionless growth rate f=dlnD/dlna;
                 !f is identically zero while GrowthRate is disabled, but it must stay
                 !unscaled so re-enabling it cannot silently corrupt the column.
+                !Column 1 is k/h, so k in Mpc^-1 is outarr(Transfer_kh)*h.
+                isonorm = 1._dl
+                if (CP%axion_isocurvature) isonorm = phinorm_table(1)/2._dl * (outarr(Transfer_kh)*(CP%h0/100._dl))**2
                 outarr(Transfer_cdm:Transfer_axion) = outarr(Transfer_cdm:Transfer_axion)*isonorm
                 outarr(Transfer_tot)                = outarr(Transfer_tot)*isonorm
                 write(fileio_unit,'(9(ES15.8,1X))') outarr ! axion

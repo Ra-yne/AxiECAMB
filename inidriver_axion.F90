@@ -509,7 +509,15 @@ program driver
 
   if (P%WantScalars .or. P%WantTransfer) then
      P%Scalar_initial_condition = Ini_Read_Int('initial_condition',initial_adiabatic)
-
+     
+     !initial_condition is not the axion isocurvature switch; axion_isocurvature = T is,
+     !and it selects mode 6 internally after the isocurvature block has been read.
+     if (P%Scalar_initial_condition == initial_iso_axion .and. .not. P%axion_isocurvature) then
+        write(*,*) 'For axion isocurvature, set axion_isocurvature = T and leave'
+        write(*,*) 'initial_condition at 1.  Mode 6 is selected internally.'
+        error stop 'Set axion_isocurvature = T for an axion isocurvature run.'
+     end if
+     
      if (P%Scalar_initial_condition == initial_vector) then
         P%InitialConditionVector=0
         numstr = Ini_Read_String('initial_vector',.true.)
